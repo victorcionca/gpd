@@ -9,46 +9,13 @@ const int SUM_OF_GAUSSIANS = 0;
 const int MAX_OF_GAUSSIANS = 1;
 
 SequentialImportanceSampling::SequentialImportanceSampling(
-    const std::string &config_filename) {
-  // Read parameters from configuration file.
-  util::ConfigFile config_file(config_filename);
-  config_file.ExtractKeys();
+    SequentialImportanceSampling::SISamplingParameters& si_param,
+    GraspDetector::GraspDetectionParameters& gd_param) {
+  
+  param_ = si_param;
+  grasp_detector_ = std::make_unique<GraspDetector>(gd_param);
 
-  num_init_samples_ = config_file.getValueOfKey<int>("num_init_samples", 50);
-  num_iterations_ = config_file.getValueOfKey<int>("num_iterations", 5);
-  num_samples_ =
-      config_file.getValueOfKey<int>("num_samples_per_iteration", 50);
-  prob_rand_samples_ =
-      config_file.getValueOfKey<double>("prob_rand_samples", 0.3);
-  radius_ = config_file.getValueOfKey<double>("standard_deviation", 0.02);
-  sampling_method_ =
-      config_file.getValueOfKey<int>("sampling_method", SUM_OF_GAUSSIANS);
-  min_score_ = config_file.getValueOfKey<double>("min_score", 0);
-
-  num_threads_ = config_file.getValueOfKey<int>("num_threads", 1);
-
-  workspace_ =
-      config_file.getValueOfKeyAsStdVectorDouble("workspace", "-1 1 -1 1 -1 1");
-  workspace_grasps_ = config_file.getValueOfKeyAsStdVectorDouble(
-      "workspace_grasps", "-1 1 -1 1 -1 1");
-
-  filter_approach_direction_ =
-      config_file.getValueOfKey<bool>("filter_approach_direction", false);
-  std::vector<double> approach =
-      config_file.getValueOfKeyAsStdVectorDouble("direction", "1 0 0");
-  direction_ << approach[0], approach[1], approach[2];
-  thresh_rad_ = config_file.getValueOfKey<double>("thresh_rad", 2.3);
-
-  visualize_rounds_ =
-      config_file.getValueOfKey<bool>("visualize_rounds", false);
-  visualize_steps_ = config_file.getValueOfKey<bool>("visualize_steps", false);
-  visualize_results_ =
-      config_file.getValueOfKey<bool>("visualize_results", false);
-
-  grasp_detector_ = std::make_unique<GraspDetector>(config_filename);
-
-  int min_inliers = config_file.getValueOfKey<int>("min_inliers", 1);
-  clustering_ = std::make_unique<Clustering>(min_inliers);
+  clustering_ = std::make_unique<Clustering>(gd_param.min_inliers_);
 }
 
 std::vector<std::unique_ptr<candidate::Hand>>
@@ -69,8 +36,8 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
       grasp_detector_->getHandSearchParameters().num_orientations_);
 
   // 1. Find initial grasp hypotheses.
-  cloud.subsample(num_init_samples_);
-  if (visualize_steps_) {
+  cloud.subsample(param_.num_init_samples_);
+  if (param_.visualize_steps_) {
     plotter.plotSamples(cloud.getSampleIndices(), cloud.getCloudProcessed());
   }
   std::vector<std::unique_ptr<candidate::HandSet>> hand_set_list =
@@ -82,47 +49,47 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
   }
 
   hand_set_list =
-      grasp_detector_->filterGraspsWorkspace(hand_set_list, workspace_grasps_);
+      grasp_detector_->filterGraspsWorkspace(hand_set_list, param_.workspace_grasps_);
   printf("Grasps within workspace: %zu", hand_set_list.size());
 
-  if (filter_approach_direction_) {
+  if (param_.filter_approach_direction_) {
     hand_set_list = grasp_detector_->filterGraspsDirection(
-        hand_set_list, direction_, thresh_rad_);
-    if (visualize_rounds_) {
+        hand_set_list, param_.direction_, param_.thresh_rad_);
+    if (param_.visualize_rounds_) {
       plotter.plotFingers3D(hand_set_list, cloud.getCloudOriginal(),
                             "Filtered Grasps (Approach)", hand_geom);
     }
   }
 
-  if (visualize_rounds_) {
+  if (param_.visualize_rounds_) {
     plotter.plotFingers3D(hand_set_list, cloud.getCloudOriginal(),
                           "Initial Grasps", hand_geom);
   }
 
-  int num_rand_samples = prob_rand_samples_ * num_samples_;
-  int num_gauss_samples = num_samples_ - num_rand_samples;
-  double sigma = radius_;
+  int num_rand_samples = param_.prob_rand_samples_ * param_.num_samples_;
+  int num_gauss_samples = param_.num_samples_ - num_rand_samples;
+  double sigma = param_.radius_;
   Eigen::Matrix3d diag_sigma = Eigen::Matrix3d::Zero();
   diag_sigma.diagonal() << sigma, sigma, sigma;
   Eigen::Matrix3d inv_sigma = diag_sigma.inverse();
   double term = 1.0 / sqrt(pow(2.0 * M_PI, 3.0) * pow(sigma, 3.0));
-  Eigen::Matrix3Xd samples(3, num_samples_);
+  Eigen::Matrix3Xd samples(3, param_.num_samples_);
 
   // 2. Find grasp hypotheses using importance sampling.
-  for (int i = 0; i < num_iterations_; i++) {
+  for (int i = 0; i < param_.num_iterations_; i++) {
     std::cout << i << " " << num_gauss_samples << std::endl;
 
     // 2.1 Draw samples close to existing affordances.
-    if (this->sampling_method_ == SUM_OF_GAUSSIANS) {
+    if (this->param_.sampling_method_ == SUM_OF_GAUSSIANS) {
       drawSamplesFromSumOfGaussians(hand_set_list, sigma, num_gauss_samples,
                                     samples);
-    } else if (this->sampling_method_ == MAX_OF_GAUSSIANS) {
+    } else if (this->param_.sampling_method_ == MAX_OF_GAUSSIANS) {
       drawSamplesFromMaxOfGaussians(hand_set_list, sigma, num_gauss_samples,
                                     samples, term);
     }
 
     // 2.2 Draw random samples.
-    drawUniformSamples(cloud, num_rand_samples, num_samples_ - num_rand_samples,
+    drawUniformSamples(cloud, num_rand_samples, param_.num_samples_ - num_rand_samples,
                        samples);
 
     // 2.3 Evaluate grasp hypotheses at <samples>.
@@ -131,18 +98,18 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
         grasp_detector_->generateGraspCandidates(cloud);
 
     hand_set_list_new = grasp_detector_->filterGraspsWorkspace(
-        hand_set_list_new, workspace_grasps_);
+        hand_set_list_new, param_.workspace_grasps_);
 
-    if (filter_approach_direction_) {
+    if (param_.filter_approach_direction_) {
       hand_set_list_new = grasp_detector_->filterGraspsDirection(
-          hand_set_list_new, direction_, thresh_rad_);
-      if (visualize_steps_) {
+          hand_set_list_new, param_.direction_, param_.thresh_rad_);
+      if (param_.visualize_steps_) {
         plotter.plotFingers3D(hand_set_list_new, cloud.getCloudOriginal(),
                               "Filtered Grasps (Approach)", hand_geom);
       }
     }
 
-    if (visualize_rounds_) {
+    if (param_.visualize_rounds_) {
       plotter.plotSamples(samples, cloud.getCloudProcessed());
       plotter.plotFingers3D(hand_set_list_new, cloud.getCloudOriginal(),
                             "New Grasps", hand_geom);
@@ -156,7 +123,7 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
            hand_set_list_new.size(), i, hand_set_list.size());
   }
 
-  if (visualize_steps_) {
+  if (param_.visualize_steps_) {
     plotter.plotFingers3D(hand_set_list, cloud.getCloudOriginal(),
                           "Grasp Candidates", hand_geom);
   }
@@ -164,9 +131,9 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
   // 3. Classify the grasps.
   std::vector<std::unique_ptr<candidate::Hand>> valid_grasps;
   valid_grasps =
-      grasp_detector_->pruneGraspCandidates(cloud, hand_set_list, min_score_);
+      grasp_detector_->pruneGraspCandidates(cloud, hand_set_list, param_.min_score_);
   printf("Valid grasps: %zu\n", valid_grasps.size());
-  if (visualize_steps_) {
+  if (param_.visualize_steps_) {
     plotter.plotFingers3D(valid_grasps, cloud.getCloudOriginal(),
                           "Valid Grasps", hand_geom);
   }
@@ -178,7 +145,7 @@ SequentialImportanceSampling::detectGrasps(util::Cloud &cloud) {
   printf("Final result: found %zu grasps.\n", valid_grasps.size());
   printf("Total runtime: %3.4fs\n.\n", omp_get_wtime() - t0);
 
-  if (visualize_results_ || visualize_steps_) {
+  if (param_.visualize_results_ || param_.visualize_steps_) {
     plotter.plotFingers3D(valid_grasps, cloud.getCloudOriginal(), "Clusters",
                           hand_geom);
   }
@@ -260,9 +227,9 @@ void SequentialImportanceSampling::drawUniformSamples(
                    .getVector3fMap()
                    .cast<double>();
     }
-    if (sample(0) >= workspace_[0] && sample(0) <= workspace_[1] &&
-        sample(1) >= workspace_[2] && sample(1) <= workspace_[3] &&
-        sample(2) >= workspace_[4] && sample(2) <= workspace_[5]) {
+    if (sample(0) >= param_.workspace_[0] && sample(0) <= param_.workspace_[1] &&
+        sample(1) >= param_.workspace_[2] && sample(1) <= param_.workspace_[3] &&
+        sample(2) >= param_.workspace_[4] && sample(2) <= param_.workspace_[5]) {
       samples.col(start_idx + i) = sample;
       i++;
     }

@@ -56,11 +56,39 @@ typedef pcl::PointCloud<pcl::PointXYZRGBA> PointCloudRGB;
  */
 class SequentialImportanceSampling {
  public:
+   // sequential importance sampling parameters
+   struct SISamplingParameters
+   {
+     int num_iterations_;        ///< number of iterations of CEM
+     int num_samples_;           ///< number of samples to use in each iteration
+     int num_init_samples_;      ///< number of initial samples
+     double prob_rand_samples_;  ///< probability of random samples
+     double radius_;             ///< standard deviation of Gaussian distribution
+     int sampling_method_;  ///< what sampling method is used (sum, max, weighted)
+     double min_score_;     ///< minimum score to consider a candidate as a grasp
+
+     // visualization parameters
+     bool visualize_rounds_;  ///< if all iterations are visualized
+     bool visualize_steps_;   ///< if all grasp candidates and all valid grasps are
+     /// visualized
+     bool visualize_results_;  ///< if the final results are visualized
+
+     // grasp filtering parameters
+     std::vector<double> workspace_;         ///< the robot's workspace
+     std::vector<double> workspace_grasps_;  ///< the robot's workspace
+
+     bool filter_approach_direction_;
+     Eigen::Vector3d direction_;
+     double thresh_rad_;
+
+     int num_threads_;  ///< number of CPU threads used in grasp detection
+   };
+
   /**
    * \brief Constructor.
    * \param node ROS node handle
    */
-  SequentialImportanceSampling(const std::string &config_filename);
+  SequentialImportanceSampling(SISamplingParameters& si_params, GraspDetector::GraspDetectionParameters& gd_params);
 
   /**
    * \brief Detect grasps.
@@ -114,30 +142,9 @@ class SequentialImportanceSampling {
   std::unique_ptr<GraspDetector> grasp_detector_;
   std::unique_ptr<Clustering> clustering_;
 
-  // sequential importance sampling parameters
-  int num_iterations_;        ///< number of iterations of CEM
-  int num_samples_;           ///< number of samples to use in each iteration
-  int num_init_samples_;      ///< number of initial samples
-  double prob_rand_samples_;  ///< probability of random samples
-  double radius_;             ///< standard deviation of Gaussian distribution
-  int sampling_method_;  ///< what sampling method is used (sum, max, weighted)
-  double min_score_;     ///< minimum score to consider a candidate as a grasp
 
-  // visualization parameters
-  bool visualize_rounds_;  ///< if all iterations are visualized
-  bool visualize_steps_;   ///< if all grasp candidates and all valid grasps are
-                           /// visualized
-  bool visualize_results_;  ///< if the final results are visualized
-
-  // grasp filtering parameters
-  std::vector<double> workspace_;         ///< the robot's workspace
-  std::vector<double> workspace_grasps_;  ///< the robot's workspace
-
-  bool filter_approach_direction_;
-  Eigen::Vector3d direction_;
-  double thresh_rad_;
-
-  int num_threads_;  ///< number of CPU threads used in grasp detection
+  
+  SISamplingParameters param_;
 };
 
 }  // namespace gpd

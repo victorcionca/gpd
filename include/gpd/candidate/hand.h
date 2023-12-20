@@ -69,6 +69,12 @@ struct BoundingBox {
   double bottom_;
 };
 
+struct GraspPose {
+  Eigen::Vector3d surface_;
+  Eigen::Vector3d bottom_;
+  Eigen::Vector3d top_;
+};
+
 /**
  *
  * \brief Grasp represented as a robot hand pose
@@ -243,6 +249,21 @@ class Hand {
    */
   double getTop() const { return closing_box_.top_; }
 
+  const Eigen::Vector3d& getGraspTop() const
+  {
+    return pose_.top_;
+  }
+
+  const Eigen::Vector3d& getGraspBottom() const
+  {
+    return pose_.bottom_;
+  }
+
+  const Eigen::Vector3d& getGraspSurface() const
+  {
+    return pose_.surface_;
+  }
+  
   /**
    * \brief Return the index of the finger placement.
    * \return the index of the finger placement
@@ -264,6 +285,7 @@ class Hand {
    */
   std::string vectorToString(const Eigen::VectorXd &v) const;
 
+  GraspPose pose_;
   Eigen::Vector3d position_;  ///< grasp position (bottom center of robot hand)
   Eigen::Matrix3d orientation_;  ///< grasp orientation (rotation of robot hand)
 
